@@ -181,7 +181,7 @@ fn fail(message: &str) -> i32 {
     2
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

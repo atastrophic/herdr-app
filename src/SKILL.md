@@ -20,6 +20,14 @@ prints the built-in command list even without an open window. Do not launch bare
 signal or restart the person's app or core. A window closing does not kill
 its terminals.
 
+Use `herdr-app --profile work` to open a second persistent window alongside
+the default window. Profiles have separate settings, mods and window state
+under `<app home>/profiles/window-<name>` and share the core's terminals.
+Names use 1-24 ASCII letters, digits, hyphens or underscores.
+Address that window with the same prefix, for example
+`herdr-app --profile work status`. Closing a profile window leaves the
+other windows and their terminals running.
+
 `app.check_updates` checks for newer releases. Settings reports "Up to date"
 only after a successful check; on failure, check the connection and retry.
 Package-managed cores are checked but updated through their package manager.

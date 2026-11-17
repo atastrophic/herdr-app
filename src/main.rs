@@ -48,6 +48,7 @@ herdr-app: the Herdr desktop app. With no arguments it opens the window.
 
 Usage:
   herdr-app                        open the window
+  herdr-app --profile <name>       open another persistent window profile
   herdr-app ls                     spaces, their tabs and terminals, in the open window
   herdr-app do <command> [args]    run a command: --name api --argv '[\"pi\"]', or one JSON object
   herdr-app feedback <text>        draft feedback for the person to review and send
@@ -63,7 +64,48 @@ window closes. `hc --help`: start, read, wait on and talk to terminals and
 agents. The app shows them and arranges them in spaces and tabs.
 
 Home: ~/.config/herdr-app (HERDR_APP_HOME picks another).
+Put --profile <name> before a command to address that profile's window.
+Profiles keep separate settings and window state, sharing the same core.
 ";
+
+fn profile_args(args: &mut Vec<String>, home: &std::path::Path) -> Result<Option<std::path::PathBuf>, String> {
+    if args.get(1).map(String::as_str) != Some("--profile") {
+        return Ok(None);
+    }
+    let name = args.get(2).ok_or("--profile needs a name")?;
+    if name.is_empty() || name.len() > 24 || !name.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_')) {
+        return Err("profile names must be 1-24 ASCII letters, digits, hyphens or underscores".into());
+    }
+    let home = home.join("profiles").join(format!("window-{name}"));
+    args.drain(1..3);
+    Ok(Some(home))
+}
+
+#[cfg(test)]
+mod profile_tests {
+    use super::profile_args;
+
+    #[test]
+    fn profiles_have_separate_homes_and_keep_the_command() {
+        let home = std::path::Path::new("herdr-home");
+        let mut args = ["herdr-app", "--profile", "work", "status"].map(String::from).to_vec();
+        assert_eq!(profile_args(&mut args, home).unwrap(), Some(home.join("profiles").join("window-work")));
+        assert_eq!(args, ["herdr-app", "status"]);
+        let mut other = ["herdr-app", "--profile", "personal"].map(String::from).to_vec();
+        assert_eq!(profile_args(&mut other, home).unwrap(), Some(home.join("profiles").join("window-personal")));
+        assert_eq!(other, ["herdr-app"]);
+        assert_eq!(profile_args(&mut args, home).unwrap(), None);
+    }
+
+    #[test]
+    fn invalid_profiles_cannot_escape_their_home() {
+        for tail in [vec![], vec![""], vec![".."], vec!["../other"], vec![r"..\other"], vec!["a/b"], vec!["C:other"], vec!["abcdefghijklmnopqrstuvwxyz"]] {
+            let mut args = vec!["herdr-app".into(), "--profile".into()];
+            args.extend(tail.into_iter().map(String::from));
+            assert!(profile_args(&mut args, std::path::Path::new("herdr-home")).is_err());
+        }
+    }
+}
 
 /// The folder tests put their scratch data in: `HERDR_TEST_TMPDIR` if set, else /var/tmp.
 #[cfg(test)]
@@ -85,15 +127,38 @@ fn attach_console() {
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    let mut args: Vec<String> = std::env::args().collect();
     #[cfg(target_os = "macos")]
     macos_check::startup(&args);
     #[cfg(windows)]
     if args.len() > 1 {
         attach_console();
     }
+    let profiled = match profile_args(&mut args, &mods::app_dir()) {
+        Ok(Some(home)) => {
+            // SAFETY: select the home before starting threads or initializing the app.
+            unsafe { std::env::set_var("HERDR_APP_HOME", home) };
+            true
+        }
+        Ok(None) => false,
+        Err(e) => {
+            eprintln!("herdr-app: {e}");
+            std::process::exit(2);
+        }
+    };
     // `herdr-app check <mod>` / `herdr-app types <mod>`: gpui-shell's own checker, with Herdr's module installed.
     if matches!(args.get(1).map(String::as_str), Some("check" | "types")) {
+        if profiled {
+            // The shared host reads process arguments, so pass it the stripped command.
+            let result = std::env::current_exe().and_then(|exe| spawn::command(exe).args(&args[1..]).status());
+            match result {
+                Ok(status) => std::process::exit(status.code().unwrap_or(1)),
+                Err(e) => {
+                    eprintln!("herdr-app: cannot run the profile's mod command: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
         mods::install_check_policy();
         gpui_shell::host::main_with_components(gpui_shell::FrozenComponentRegistry::default());
         return;

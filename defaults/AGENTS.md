@@ -24,6 +24,13 @@ from the same parts you have.
 
 `herdr-app` controls this app; `hc` controls herdr-core.
 
+`herdr-app --profile work` opens a separate persistent window with its own
+settings, mods and window state, sharing the same core. Profile names use
+1-24 ASCII letters, digits, hyphens or underscores. Use the same prefix
+before commands (`herdr-app --profile work status`) to address that window.
+Profiles live under `<app home>/profiles/window-<name>`; closing one does
+not close another or end its terminals.
+
 ## What you can and can't do
 
 You can: rearrange and restyle the whole window (layouts), rebind any key,
